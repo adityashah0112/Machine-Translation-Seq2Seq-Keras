@@ -32,11 +32,12 @@ from tensorflow.keras.models import Model
 # Model optimizer and loss parameters
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.losses import sparse_categorical_crossentropy
-tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
 
 # Suppressing warnings
 import warnings
 warnings.filterwarnings("ignore")
+
+tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
 
 """Verify access to the GPU"""
 
@@ -47,11 +48,11 @@ print(device_lib.list_local_devices())
 
 **Summary of the algorithm**
 
-* An RNN stack acts as "encoder": it will process the input and return the internal states. In doing so, we discard the outputs of this RNN stack, only recovering the state. This state will act as our "context" of the decoder in the next step.
+* An RNN stack acts as "encoder": it will process the input and return the internal states. In doing so, we won't need the outputs of this RNN stack, an d only keep the state. This state will act as our "context" for the decoder in the upcoming step.
 * Another RNN stack acts as "decoder": Trained to predict the next characters of our target, provided with previous characters of the same sequence. It is trained to convert the target sequences into the same sequences but offset by **one** timestep in the future, by using a process called **"teacher forcing"** used in training. Moreover, our encoder uses the intermediate states from the encoder as initial state, which is how the decoder infers about what it is supposed to generate.
 
 # 1. Load Data
-The dataset used in the example involves short French and English sentence pairs
+The dataset used in the example uses short corresponding French and English sentence pairs
 
 Steps to load data include:
 * Download data from the github raw
@@ -139,27 +140,27 @@ eng_vocab_size = len(eng_tokenizer.word_index)
 fre_vocab_size = len(fre_tokenizer.word_index)
 
 # A sanity check and validation that evrything is as it is supposed to be...
-print("English vocabulary size:\t", eng_vocab_size) # 199
-print("French vocabulary size: \t", fre_vocab_size) # 346
+print(f"English vocabulary size:\t", eng_vocab_size) # 199
+print(f"French vocabulary size: \t", fre_vocab_size) # 346
 print()
 
 eng_seq_len = len(eng_encoded[0])
 fre_seq_len = len(fre_encoded[0])
         
-print("Length of longest English sentence:\t", eng_seq_len) # 15
-print("Length of longest French sentence: \t", fre_seq_len) # 23
+print(f"Length of longest English sentence:\t", eng_seq_len) # 15
+print(f"Length of longest French sentence: \t", fre_seq_len) # 23
 print()
 
-print("Shape of English encoded tokens:\t", eng_encoded.shape)  # (137861, 15, 1)
-print("Shape of French encoded tokens: \t", fre_encoded.shape)  # (137861, 23, 1)
+print(f"Shape of English encoded tokens:\t", eng_encoded.shape)  # (137861, 15, 1)
+print(f"Shape of French encoded tokens: \t", fre_encoded.shape)  # (137861, 23, 1)
 
 """# 3. Build Seq2Seq Model & Train
 
 The translation model we will now build is an encoder-decoder RNN.
 
 It is made of:
-* an encoder that reads a variable length input sequence and 
-* a decoder that predicts a variable length output sequence.
+* an encoder that reads an input sequence and 
+* a decoder that predicts an output sequence.
 
 ## 3.1. Training model
 
@@ -192,7 +193,7 @@ The decoder input is defined as a sequence of French character one-hot encoded t
 
 The decoder LSTM layer will return both, the sequences and state. 
 
-The hidden and cell states are ignored and only the output sequence of hidden states is used. 
+Only the output sequence of hidden states is used and the hidden state and cell states are ignored. 
 
 The final hidden and cell state from **the encoder** is used to initialize the state of the decoder.
 """
@@ -200,7 +201,7 @@ The final hidden and cell state from **the encoder** is used to initialize the s
 input_seq_decoder = Input(shape = (None, 1),
                           name = "decoder_input")     # (batch_size, sentence_length, 1)
 
-# Our decoder will return full output sequences, and to return internal states as well. 
+# Our decoder will return full sequences, and return internal states as well. 
 # We don't use the return states in the training model, but we will use them in inference.
 decoder_lstm = LSTM(units = 256,                          
                     activation = 'relu',
@@ -248,8 +249,8 @@ Image('model.png')
 
 """## 3.2. Inference model
 New inference models are required for making predictions, these are:
-* a model for encoding English input sequences of characters and 
-* a model that takes the French character sequence generated and the encoding as input and predicts the next sequence character.
+* a model for encoding English sequences of characters and 
+* a model that takes the French character sequence and the encoding as inputs and predicts the next sequence character.
 
 ### 3.2.1. Encoder Model for inference
 The encoder model takes the input layer from the encoder in the trained model and produces the hidden and cell states as shown below.
@@ -259,14 +260,14 @@ last_states_encoder = [last_hidden_encoder, last_cell_encoder]
 inference_encoder_model = Model(inputs = input_seq_encoder, 
                                 outputs = last_states_encoder)
 
-plot_model(inference_encoder_model, show_shapes=True, show_layer_names=True, to_file='encoder_model.png')
+plot_model(inference_encoder_model, to_file='encoder_model.png', show_shapes=True, show_layer_names=True)
 # Image will be saved under the name 'model.png'
 Image('encoder_model.png')
 
 """### 3.2.2. Decoder Model for inference
 The decoder needs hidden state and cell state from the trained encoder as the initial states of the new encoder model defined above. 
 
-Because the decoder is separate, these states will be given as inputs to the model, and must be defined as inputs.
+Since the decoder is a separate entity, these states should be defined as inputs prior to giving them to the model as inputs.
 """
 
 decoder_initial_state = [Input(shape = (256,)), Input(shape = (256,))]  
@@ -278,17 +279,17 @@ inference_decoder_model = Model(inputs  = [input_seq_decoder] + decoder_initial_
                                           last_hidden_decoder, 
                                           last_cell_decoder])
 
-plot_model(inference_decoder_model, show_shapes=True, show_layer_names=True, to_file='decoder_model.png')
+plot_model(inference_decoder_model, to_file='decoder_model.png', show_shapes=True, show_layer_names=True)
 # Image will be saved under the name 'model.png'
 Image('decoder_model.png')
 
 """### 3.2.3. Decode Sequence Function
 
-Both the **encoder and decoder will be called recursively** for each character that is to be generated in the translated sequence.
+The **encoder and decoder will be called in recursion** for every character that will be produced during the translations.
 
-On the first call, the **hidden and cell states from the encoder** will be used to **initialize the decoder LSTM layer**, provided as input to the model directly.
+On the first call to the method, the **hidden state and cell state from the encoder** will **initialize the decoder's LSTM layer**, essentially given as input to the model.
 
-On subsequent **recursive calls to the decoder**, the last hidden and cell state must be provided to the model. These state values are already within the decoder; however, we need to **re-initialize the state on each call** in order to take the final states from the encoder on the first call.
+On the **recursive calls to the decoder** that follow, the final hidden state and cell state must be given to the model. These states are readily available in the decoder; however, we need to **re-initialize the state on each call** in order to take the final states from the encoder on the first call.
 
 
 """
@@ -354,9 +355,9 @@ for i in [293, 296, 393, 418]:
 This tutorial lines out how to define an encoder-decoder sequence-to-sequence prediction model for translation, as described by the author of the Keras deep learning library.
 
 The process included:
-* The neural machine translation example provided with Keras and described on the Keras blog.
-* How to correctly define an encoder-decoder LSTM for training a neural machine translation model.
-* How to correctly define an inference model for using a trained encoder-decoder model to translate new sequences.
+* The neural machine translation model.
+* Correctly defining an encoder-decoder LSTM for training a seq-to-seq machine translation model.
+* Correctly defining an inference model to translate new sequences.
 
 The results produced by the model seems like perfect translations for the standarad of the simple dataset with limited vocabulary!
 
